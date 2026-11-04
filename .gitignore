@@ -1,0 +1,10 @@
+# Los binarios viven en GitHub Releases, no en git
+*.glb
+*.gltf
+*.fbx
+*.obj
+*.blend
+*.zip
+*.png
+*.jpg
+*.jpeg
