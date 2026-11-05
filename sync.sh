@@ -1,21 +1,35 @@
 #!/usr/bin/env bash
 # Sube los assets a GitHub Releases. Una release por carpeta: <categoria>/<subcarpeta> -> tag "<categoria>-<subcarpeta>"
-# Solo sube archivos nuevos o con tamaño distinto (no re-sube todo).
+# (el tag se normaliza a minusculas, sin acentos ni espacios: "circuitos/Circuit Zolder" -> "circuitos-circuit-zolder").
+# Solo sube archivos nuevos o con tamaño distinto (no re-sube todo). Los .txt (atribuciones) van en git, no en releases.
 # Uso:  ./sync.sh            (desde Git Bash, en esta carpeta)
 set -euo pipefail
 cd "$(dirname "$0")"
 REPO="heg15220/f1-3d-assets"
 
+tag_for() {
+  printf '%s' "$1" | iconv -f utf-8 -t ascii//TRANSLIT 2>/dev/null | tr '[:upper:]' '[:lower:]' \
+    | sed -E 's/[^a-z0-9]+/-/g; s/^-+|-+$//g'
+}
+
+binaries() {  # archivos de la carpeta que van a la release
+  local dir="$1"
+  shopt -s nullglob
+  for f in "$dir"/*.*; do
+    case "$f" in *.txt|*.md|*.part) continue ;; esac
+    printf '%s\n' "$f"
+  done
+  shopt -u nullglob
+}
+
 for dir in */*/; do
   dir="${dir%/}"
-  shopt -s nullglob
-  files=("$dir"/*.*)
-  shopt -u nullglob
+  mapfile -t files < <(binaries "$dir")
   [ ${#files[@]} -eq 0 ] && continue
-  tag="${dir//\//-}"
+  tag="$(tag_for "$dir")"
   if ! gh release view "$tag" -R "$REPO" >/dev/null 2>&1; then
     echo "Creando release $tag"
-    gh release create "$tag" -R "$REPO" --title "$dir" --notes "Assets de \`$dir\`" >/dev/null
+    gh release create "$tag" -R "$REPO" --title "$dir" --notes "Assets de \`$dir\`" --latest=false >/dev/null
   fi
   existing="$(gh release view "$tag" -R "$REPO" --json assets -q '.assets[] | "\(.name)\t\(.size)"')"
   for f in "${files[@]}"; do
@@ -35,11 +49,11 @@ done
   echo "| Release | Archivo | Tamaño (MB) |"
   echo "|---|---|---|"
   for dir in */*/; do
-    dir="${dir%/}"; tag="${dir//\//-}"
-    for f in "$dir"/*.*; do
-      [ -e "$f" ] || continue
+    dir="${dir%/}"; tag="$(tag_for "$dir")"
+    while IFS= read -r f; do
+      [ -n "$f" ] || continue
       printf '| %s | %s | %.1f |\n' "$tag" "$(basename "$f")" "$(awk -v s="$(stat -c %s "$f")" 'BEGIN{print s/1048576}')"
-    done
+    done < <(binaries "$dir")
   done
 } > MANIFEST.md
 echo "Listo. Revisa MANIFEST.md y haz commit si ha cambiado."
